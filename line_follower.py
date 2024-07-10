@@ -6,6 +6,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 from geometry_msgs.msg import Twist
 
+
 # Publisher for movement
 pub = rospy.Publisher('/mobile_base/commans/velocity', Twist, queue_size = 1)
 
@@ -91,12 +92,23 @@ def filterBlobs(blobs):
             bigBlobs.append(b)
     return bigBlobs
 
-
-
+# returns largest blob in list
+def getLargestBlob(blobs):
+    if len(blobs) > 0:
+        largestBlob = blobs[0]
+        for b in blobs:
+            if b.area > largestBlob:
+                largestBlob = b
+        return largestBlob
+    else:
+        return None
 
 # Main method, uses while loop to keep robot working
 def main():
     global pub, colorImage, blobsInfo, isColorImageReady, isBlobsInfoReady
+    old_error = 0
+    
+    
     rospy.init_node('blobtracker', anonymous = True) # our node
     rospy.Subscriber('/v4l/camera/image_raw', Image, updateColorImage) # image channel
     rospy.Subscriber('/blobs', Blobs, updateBlobsInfo) # blobs channel gives blobs
@@ -111,11 +123,34 @@ def main():
     while not rospy.is_shutdown():
         try:
             recolored_image = bridge.imgmsg_to_cv2(colorImage, "bgr8")
-        except: CvBridgeError as e:
+        except CvBridgeError as e:
             print(e)
             continue
-    filteredBlobs = filterBlobs(blobsInfo.blobs)
-    mergedBlobs = mergeAllBlobs(filteredBlobs)
+    
+        # FIlter, merge, get largest blob
+        filteredBlobs = filterBlobs(blobsInfo.blobs)
+        mergedBlobs = mergeAllBlobs(filteredBlobs)
+        largestBlob = getLargestBlob(mergedBlobs)
+        
+        # calulus time! see PID slides
+        # this is how we adjust our turning
+        PROPORTIONAL_VAR = .5 # adjust until oscillation begins
+        DIFFERENTIAL_VAR = 0 # then adjust until oscillation stops
+        INTEGRAL_VAR = 0 # final adjustments
+        if (largestBlob != None):
+            error = 320 - largestBlob.x
+            differential = error - old_error
+            integral += error # theres no way this is right been awhile since calc 2
+            twist.angular.z = (PROPORTIONAL_VAR * error +
+                            INTEGRAL_VAR * integral +
+                            DIFFERENTIAL_VAR * differential)
+        else:
+            twist.angular.z = 0
+
+        twist.linear.x = .2
+        pub.publish(twist)
+    # end while
+    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     try:
