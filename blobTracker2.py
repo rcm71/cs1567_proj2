@@ -1,27 +1,26 @@
 #!/usr/bin/python
 
-import rospy, cv2, copy, math
+import rospy, cv2, copy
 from cmvision.msg import Blobs, Blob
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 from geometry_msgs.msg import Twist
 
+# Publisher for robot velocity commands
+pub = rospy.Publisher('/mobile_base/commands/velocity', Twist, queue_size=1)
 
-# Publisher for movement
-pub = rospy.Publisher('/mobile_base/commands/velocity', Twist, queue_size = 1)
-
-colorImage = Image() # image object used for display, from camera callback
-blobsInfo = Blobs() # 'blobs' object we get from blobcallback
-isColorImageReady = False # Want both of these before we continue
+colorImage = Image()
+isColorImageReady = False
+blobsInfo = Blobs()
 isBlobsInfoReady = False
 
-# Callback form camera
+# Callback to update the color image
 def updateColorImage(data):
     global colorImage, isColorImageReady
     colorImage = data
     isColorImageReady = True
 
-# Callback to get blobs
+# Callback to update the blobs information
 def updateBlobsInfo(data):
     global blobsInfo, isBlobsInfoReady
     blobsInfo = data
@@ -65,7 +64,6 @@ def mergeBlobs(a, b):
                       (superBlob.right - superBlob.bottom))
     return superBlob
 
-
 # Merges all touching blobs
 def mergeAllBlobs(blobs):
     mergedBlobs = [] # final blobs list
@@ -88,6 +86,37 @@ def mergeAllBlobs(blobs):
         blobs.pop(0) # get rid of superblob
     return mergedBlobs
 
+# Function to find the largest blob
+def biggestBlob(blobs):
+    big = Blob()
+    big.area = 0
+    for blob in blobs:
+        if blob.area > big.area:
+            big = blob
+    return big
+
+def splitbycolor(blobs):
+    pink = []
+    orange = []
+    setofblob = []
+    for blob in blobs:
+        if blob.name == "NeonPink":
+	    pink.append(blob)
+	if blob.name == "Orange":
+	    orange.append(blob)
+    setofblob.append(pink)
+    setofblob.append(orange)
+    return setofblob
+
+# pink inside blue
+def inside(pink, blue):
+    for b in blue:
+        for p in pink:
+	    if (p.right < b.right and p.right > b.left and
+		p.left > b.left and p.left < b.right and
+		p.top > b.top and p.top < b.bottom and
+		p.bottom < b.bottom and p.bottom > b.top):
+			return p
 
 # Filters out small blobs
 def filterBlobs(blobs):
@@ -97,70 +126,50 @@ def filterBlobs(blobs):
             bigBlobs.append(b)
     return bigBlobs
 
-# returns largest blob in list
-def getLargestBlob(blobs):
-    if len(blobs) > 0:
-        largestBlob = blobs[0]
-        for b in blobs:
-            if b.area > largestBlob:
-                largestBlob = b
-        return largestBlob
-    else:
-        return None
-
-# Main method, uses while loop to keep robot working
 def main():
-    global pub, colorImage, blobsInfo, isColorImageReady, isBlobsInfoReady
-    old_error = 0
-    integral = 0    
-    rospy.init_node('linefollower', anonymous = True) # our node
-    rospy.Subscriber('/v4l/camera/image_raw', Image, updateColorImage) # image channel
-    rospy.Subscriber('/blobs', Blobs, updateBlobsInfo) # blobs channel gives blobs
-    bridge = CvBridge() # Used for coloring image
-    cv2.namedWindow('Blob Locale') # Display window
-    twist = Twist() # direction command for robot
-    rate = rospy.Rate(100)
-    # waiting on our image and blobs to be ready
+    global colorImage, isColorImageReady, blobsInfo, isBlobsInfoReady
+    rospy.init_node('blobtracker', anonymous=True)
+    rospy.Subscriber("/v4l/camera/image_raw", Image, updateColorImage)
+    rospy.Subscriber('/blobs', Blobs, updateBlobsInfo)
+    bridge = CvBridge()
+    cv2.namedWindow("Blob Locale")
+    twist = Twist()
+
     while not rospy.is_shutdown() and (not isBlobsInfoReady or not isColorImageReady):
         pass
 
     while not rospy.is_shutdown():
         try:
-            recolored_image = bridge.imgmsg_to_cv2(colorImage, "bgr8")
+            color_image = bridge.imgmsg_to_cv2(colorImage, "bgr8")
         except CvBridgeError as e:
             print(e)
             continue
-    
-        # FIlter, merge, get largest blob
-        filteredBlobs = filterBlobs(blobsInfo.blobs)
-        mergedBlobs = mergeAllBlobs(filteredBlobs)
-        largestBlob = getLargestBlob(mergedBlobs)
-        
-        # calulus time! see PID slides
-        # this is how we adjust our turning
-        PROPORTIONAL_VAR = .005 # adjust until oscillation begins
-        DIFFERENTIAL_VAR = .04 # then adjust until oscillation stops
-        INTEGRAL_VAR = 0 # final adjustments
-        if (largestBlob != None):
-            error = 320 - largestBlob.x
-            differential = error - old_error
-            integral += error # theres no way this is right been awhile since calc 2
-            old_error = error
-	    if abs(error) < 10:
-		twist.angular.z = 0
-	    else:
-	        twist.angular.z = (PROPORTIONAL_VAR * error +
-                            INTEGRAL_VAR * integral +
-                            DIFFERENTIAL_VAR * differential)
-            twist.linear.x = .2
-	    print(largestBlob.x)
-	else:
-            twist.angular.z = 0
-	    twist.linear.x = 0
-            print("no blob!")
-	pub.publish(twist)
-	rate.sleep()
-    # end while
+
+        blobsCopy = copy.deepcopy(blobsInfo)
+        filteredBlobs = filterBlobs(blobsCopy.blobs)
+	sortedblobs = splitbycolor(filteredBlobs)
+        orange = mergeAllBlobs(sortedblobs.pop())
+        pink = mergeAllBlobs(sortedblobs.pop())
+
+        for b in orange:
+            cv2.rectangle(color_image, (b.left, b.top), (b.right, b.bottom), (0, 255, 0), 2)
+        for b in pink:
+	    cv2.rectangle(color_image, (b.left, b.top), (b.right, b.bottom), (0, 255, 0), 2)
+        cv2.imshow("Blob Locale", color_image)
+        cv2.waitKey(1)
+	
+	
+	b = inside(pink, orange)
+        if b != None: 
+	    if b.x > 325:
+                twist.angular.z = -0.5
+            elif b.x < 315:
+                twist.angular.z = 0.5
+            else:
+                twist.angular.z = 0.0
+
+        pub.publish(twist)
+
     cv2.destroyAllWindows()
 
 if __name__ == '__main__':
