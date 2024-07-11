@@ -26,47 +26,60 @@ def updateBlobsInfo(data):
     blobsInfo = data
     isBlobsInfoReady = True
 
-# Function to check if two blobs can be merged
-def mergeable(blob1, blob2):
-    if (blob1.top < blob2.bottom and blob1.top > blob2.top and blob1.left < blob2.right and blob1.left > blob2.left):  # topleft
-        return True
-    elif (blob1.bottom > blob2.top and blob1.bottom < blob2.bottom and blob1.left < blob2.right and blob1.left > blob2.left):  # bottomleft
-        return True
-    elif (blob1.top < blob2.bottom and blob1.top > blob2.top and blob1.right > blob2.left and blob1.right < blob2.right):  # topright
-        return True
-    elif (blob1.bottom > blob2.top and blob1.bottom < blob2.bottom and blob1.right > blob2.left and blob1.right < blob2.right):  # bottomright
-        return True
-    else:
-        return False
+# Boolean check on whether blobs overlap
+def mergable(a, b):
+    mergable = False
+    
+    # Need to check inverse (top right = bottom left)
+    # of seconary blob against a's top left and bottom right 
+    if (a.left < b.right and b.right < a.right and
+        a.top < b.bottom and b.bottom < a.bottom):
+        mergable = True # TOP LEFT
+    elif(a.left < b.right and b.right < a.right and
+        a.top < b.top and b.top < a.bottom):
+        mergable = True # BOTTOM LEFT
+    elif(a.left < b.left and b.left < a.right and
+         a.top < b.top and b.top < a.bottom):
+        mergable = True # BOTTOM RIGHT
+    elif(a.left < b.left and b.left < a.right and
+         a.top < b.bottom and b.bottom < a.bottom):
+        mergable = True # TOP RIGHT
 
-# Function to merge two blobs
-def merge(blob1, blob2):
-    blob = Blob()
-    blob.left = min(blob1.left, blob2.left)
-    blob.right = max(blob1.right, blob2.right)
-    blob.bottom = max(blob1.bottom, blob2.bottom)
-    blob.top = min(blob1.top, blob2.top)
-    blob.x = (blob1.left + blob1.right) / 2
-    blob.y = (blob1.top + blob1.bottom) / 2
-    blob.area = (blob1.right - blob1.left) * (blob1.bottom - blob1.top)
-    return blob
-# Function to merge all blobs in a list
-def mergeBlobs(blobs):
-    canMerge = True
-    while canMerge and len(blobs) > 1:
-        finalBlob = blobs[0]
-        newBlobs = []
-        canMerge = False
-        for i in range(1, len(blobs)):
-            currBlob = blobs[i]
-            if mergeable(finalBlob, currBlob):
-                finalBlob = merge(finalBlob, currBlob)
-                canMerge = True
-            else:
-                newBlobs.append(currBlob)
-        newBlobs.append(finalBlob)
-        blobs = newBlobs
-    return blobs
+    return mergable
+
+# Merges two blobs into max size
+def mergeBlobs(a, b):
+    superBlob = Blob()
+    superBlob.name = a.name
+    superBlob.red = a.red
+    superBlob.green = a.green
+    superBlob.blue = a.blue
+    superBlob.left = min(a.left, b.left)
+    superBlob.right = max(a.right, b.right)
+    superBlob.top = min(a.top, b.top)
+    superBlob.bottom = max(a.bottom, b.bottom)
+    superBlob.x = superBlob.left + superBlob.right / 2
+    superBlob.y = superBlob.top + superBlob.bottom / 2
+    superBlob.area = ((superBlob.bottom - superBlob.top)*
+                      (superBlob.right - superBlob.bottom))
+    return superBlob
+
+# Merges all touching blobs
+def mergeAllBlobs(blobs):
+    mergedBlobs = [] # final blobs list
+    while len(blobs) > 1: # while we have work to do
+        superBlob = blobs[0] # Grab first in list to use to merge
+        canMerge = True
+        while canMerge: # keep merging if we have made a merge
+            canMerge = False
+            for n in range(1, len(blobs)): # Through all blobs
+                if mergable(superBlob, blobs[n]): # checks if corners overlap
+                    canMerge = True
+                    superBlob = mergeBlobs(superBlob, blobs[n])# actual merge
+                    blobs.pop(n) # get rid of merged blob
+        mergedBlobs.append(superBlob) # canMerge = false
+        blobs.pop(0) # get rid of superblob
+    return mergedBlobs
 
 # Function to find the largest blob
 def biggestBlob(blobs):
@@ -122,8 +135,8 @@ def main():
 
         blobsCopy = copy.deepcopy(blobsInfo)
         sortedblobs = splitbycolor(blobsCopy.blobs)
-        blue = mergeBlobs(sortedblobs.pop())
-        pink = mergeBlobs(sortedblobs.pop())
+        blue = mergeAllBlobs(sortedblobs.pop())
+        pink = mergeAllBlobs(sortedblobs.pop())
 
         for b in blue:
             cv2.rectangle(color_image, (b.left, b.top), (b.right, b.bottom), (0, 255, 0), 2)
