@@ -5,9 +5,13 @@ from cmvision.msg import Blobs, Blob
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 from geometry_msgs.msg import Twist
+from blob_tracker2 import updateColorImage, updateBlobsInfo, mergeAllBlobs, splitByColor, getLargestBlob ###is it block tracker2 idk
 
 # Publisher for movement
 pub = rospy.Publisher('/mobile_base/commans/velocity', Twist, queue_size = 1)
+
+firstBallMarked, firstBallSeen, firstGoalSeen, firstGoalMarked = False
+
 
 colorImage = Image() # image object used for display, from camera callback
 blobsInfo = Blobs() # 'blobs' object we get from blobcallback
@@ -46,6 +50,25 @@ def mergable(a, b):
         mergable = True # TOP RIGHT
 
     return mergable
+
+def filterBlobs(blobs):
+    ballColor = "ENTERCOLORNAME"
+    innerGoalColor = "ENTERINNERGOAL"
+    outerGoalColor = "ENTEROUTERGOAL"
+    bigColor, ball, innerGoal, outerGoal = []
+    
+    for b in blobs:
+        if b.color == ballColor:
+            ball.append(b)
+        elif b.color == outerGoalColor:
+            outerGoal.append(b)
+        elif b.color == innerGoalColor:
+            innerGoal.append(b)
+    bigColor.append(ball)
+    bigColor.append(innerGoal)
+    bigColor.append(outerGoal)
+    return bigColor
+    
 
 # Merges two blobs into max size
 def mergeBlobs(a, b):
@@ -94,29 +117,107 @@ def getLargestBlob(blobs):
     if len(blobs) > 0:
         largestBlob = blobs[0]
         for b in blobs:
-            if b.area > largestBlob:
+            if b.area > largestBlob.area:
                 largestBlob = b
         return largestBlob
     else:
         return None
 
-# splits into two lists by color. prob not pink&blue final  
-def splitbycolor(blobs):
-    pink = []
-    blue = []
-    setofblob = []
-    for blob in blobs:
-        if blob.name == "NeonPink":
-            pink.append(blob)
-        if blob.name == "Blue":
-            blue.append(blob)
-    setofblob.append(pink)
-    setofblob.append(blue)
-    return setofblob
+# returns largest blob inside another blob
+def theBlobWithin(inner, outer):
+    largestBlob = Blob()
+    largestBlob.area = 0
+    for b in outer:
+        for p in inner:
+            if (p.right < b.right and p.right > b.left and
+            p.left > b.left and p.left < b.right and
+            p.top > b.top and p.top < b.bottom and
+            p.bottom < b.bottom and p.bottom > b.top
+            and p.area > largestBlob.area):
+                # if p within b AND p larger than last found p
+                largestBlob = p
+    if largestBlob.area > 0:
+            return largestBlob
+    else:
+        return None
+
+def honeInOnBlob(blob):
+    global pub, twist, rate
+    
+
+
+# finds first ball. Returns odom angle
+def findFirstBall(ball, goal):
+    global firstBallSeen, firstBallMarked, firstGoalSeen, twist, pub, rate
+    while not firstBallSeen and not rospy.is_shutdown():
+        twist.angular.z = .1
+        if (goal != None):
+                firstGoalSeen = True
+        if (ball != None):
+                firstBallSeen = True
+        pub.publish(twist)
+        rate.sleep()
+    while not firstBallMarked and not rospy.is_shutdown():
+        honeInOnBlob(ball)
+
+
+
 
 # main loop
 def main():
-    
+    rospy.init_node('soccer_blob_tracker')
+    rospy.Subscriber('/camera/rgb/image_raw', Image, updateColorImage)
+    rospy.Subscriber('/blobs', Blobs, updateBlobsInfo)
+    bridge = CvBridge()
+    rate = rospy.Rate(10)  # 10 Hz
+    global firstBallMarked, firstBallSeen, firstGoalSeen, firstGoalMarked
+
+
+
+
+
+
+
+
+
+    while not rospy.is_shutdown():
+        if isColorImageReady and isBlobsInfoReady:
+            try:
+                cv_image = bridge.imgmsg_to_cv2(colorImage, "bgr8")
+            except CvBridgeError as e:
+                print(e)
+                continue
+
+            # a lot here. big picture is get ball blob and goal blob
+            bigBlob = splitByColor(filterBlobs(blobsInfo.blobs))
+            unmergedOuterGoal = bigBlob.pop()
+            UMinnerGoal = bigBlob.pop()
+            UMball = bigBlob.pop()
+            innerGoalList = mergeAllBlobs(UMinnerGoal)
+            outerGoalList = mergeAllBlobs(unmergedOuterGoal)
+            ballList = mergeAllBlobs(UMball)
+            ball = getLargestBlob(ballList)
+            goal = theBlobWithin(innerGoalList, outerGoalList)
+
+            twist = Twist()
+            # start of main logic
+
+           
+            
+            
+
+
+
+            pub.publish(twist)
+
+            # Display the image with the blobs
+            for blob in blobs:
+                cv2.rectangle(cv_image, (blob.left, blob.top), (blob.right, blob.bottom), (0, 255, 0), 2)
+            cv2.imshow("Image window", cv_image)
+            cv2.waitKey(3)
+
+        rate.sleep()
+
 
 
 if __name__ == '__main__':
