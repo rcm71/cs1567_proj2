@@ -70,14 +70,14 @@ def mergeBlobs(a, b):
 def mergeAllBlobs(blobs):
     mergedBlobs = [] # final blobs list
     if len(blobs) == 1:
-	return blobs
+	    return blobs
 
     while len(blobs) > 1: # while we have work to do
         superBlob = blobs[0] # Grab first in list to use to merge
         canMerge = True
         while canMerge: # keep merging if we have made a merge
             canMerge = False
-	    n = 1
+	        n = 1
             while n < len(blobs): # Through all blobs
                 if mergable(superBlob, blobs[n]): # checks if corners overlap
                     canMerge = True
@@ -147,14 +147,14 @@ def main():
             integral += error # theres no way this is right been awhile since calc 2
             old_error = error
 	    if abs(error) < 10:
-		twist.angular.z = 0
+		    twist.angular.z = 0
 	    else:
 	        twist.angular.z = (PROPORTIONAL_VAR * error +
                             INTEGRAL_VAR * integral +
                             DIFFERENTIAL_VAR * differential)
             twist.linear.x = .2
 	    print(largestBlob.x)
-	else:
+	    else:
             twist.angular.z = 0
 	    twist.linear.x = 0
             print("no blob!")
