@@ -1,6 +1,7 @@
 #!usr/bin/python
 
-import rospy, cv2, copy
+import rospy, cv2, copy, math
+from tf.transformations import euler_from_quaternion
 from cmvision.msg import Blobs, Blob
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
@@ -201,6 +202,18 @@ def findFirstBall(ball, goal):
     honeInOnBlob(ball)
     ####MUUUUUST GET ACCURATE MEASUREMENT 
 
+# odom to degrees. returns degree
+def odomToDegree(odom):
+    # Convert quaternion to degree
+    q = [odom.pose.pose.orientation.x,
+    odom.pose.pose.orientation.y,
+    odom.pose.pose.orientation.z,
+    odom.pose.pose.orientation.w]
+    roll, pitch, yaw = euler_from_quaternion(q)
+    # roll, pitch, and yaw are in radian
+    degree = yaw * 180 / math.pi
+    x = odom.pose.pose.position.x
+    y = odom.pose.pose.position.y
 
 
 
@@ -215,6 +228,7 @@ def main():
     rate = rospy.Rate(10)  # 10 Hz
     global firstBallMarked, firstBallSeen, firstGoalSeen, firstGoalMarked
     global ball, goal, odom, isOdomReady
+    firstBallOdom, firstGoalOdom, secondBallOdom, secondGoalOdom = None
 
 
     # hol up. do we have everything?
@@ -265,10 +279,19 @@ def main():
                 findSecondBall()
             elif not secondBallFound:
                 honeInOnBlob(ball)
-                # RECORD
+                # RECORD BETTER
+                secondBallOdom = odom
             elif not secondGoalSeen:
                 findSecondGoal()
-            elif not
+            elif not secondGoalMarked:
+                honeInOnBlob(goal)
+                # RECORD
+                secondGoalOdom = odom
+
+        
+
+
+            
             
            
             
@@ -279,8 +302,9 @@ def main():
             pub.publish(twist)
 
             # Display the image with the blobs
-            for blob in blobs:
-                cv2.rectangle(cv_image, (blob.left, blob.top), (blob.right, blob.bottom), (0, 255, 0), 2)
+            cv2.rectangle(cv_image, (ball.left, ball.top), (ball.right, ball.bottom), (0, 255, 0), 2)
+            cv2.rectangle(cv_image, (goal.left, goal.top), (goal.right, goal.bottom), (0, 255, 0), 2)
+
             cv2.imshow("Image window", cv_image)
             cv2.waitKey(3)
 
