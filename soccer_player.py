@@ -174,48 +174,35 @@ def honeInOnBlob(ball):
     global pub, rate,old_error, twist
     PROPORTIONAL_VAR = .01
     DIFFERENTIAL_VAR = .004
-    ballFound = False
     if (ball != None):
         error = 320 - ball.x
-	if old_error == None:
-	    twist.angular.z = PROPORTIONAL_VAR * error
+        if old_error == None:
+            twist.angular.z = PROPORTIONAL_VAR * error
         else:
-	    differential = error - old_error
+            differential = error - old_error
             twist.angular.z = (PROPORTIONAL_VAR * error +
-                            DIFFERENTIAL_VAR * differential)
-	old_error = error
+                                DIFFERENTIAL_VAR * differential)
+        old_error = error
         if abs(error < 2) and differential < 3:
             twist.angular.z = 0
-	    pub.publish(twist)
-	    rate.sleep()
-	    rate.sleep()
+            pub.publish(twist)
+            rate.sleep()
+            rate.sleep()
             return True
-	else:
-	    print("not quite..")
+        else:
+            print("not quite..")
     else:
-	twist.angular.z = 0
+	    twist.angular.z = 0
     return False
 
     
 
-
-
-# finds first ball. Returns odom angle
-def findFirstBall(ball):
-    global firstBallSeen
-    speed = .5
-    if (ball != None):
-            firstBallSeen = True
-    return speed
-    ####MUUUUUST GET ACCURATE MEASUREMENT 
-
-
-def findFirstGoal(goal):
-    global firstGoalSeen
-    speed = .5
-    if goal != None:
-        firstGoalSeen = True
-    return speed
+def findBlob(blob):
+    global twist
+    twist.linear.z = .5
+    if blob != None:
+        return True
+    return False
 
 # odom to degrees. returns degree
 def odomToDegree(odom):
@@ -232,8 +219,29 @@ def odomToDegree(odom):
 #must set angle back to 0, travel set distance via param
 def move(distance):
     global odom
-    if odomToDegree(odom) 
-
+    degree = odomToDegree(odom)
+    atZero = False
+    if not atZero:
+        if degree > 0:
+            twist.angular.z = -.2
+            atZero = False
+        elif degree < 0:
+            twist.angular.z = .2
+            atZero = False
+        if abs(0 - degree) < 2:
+            atZero = True
+            twist.angular.z = 0
+    if atZero:
+        x = odom.pose.pose.position.x
+        if (x < distance):
+            twist.linear.x = .3
+        if x > distance * .75:
+            twist.linear.x = .2
+        if abs(distance - x) < .05:
+            twist.linear.x = 0
+            return True
+    return False
+    
 
 # main loop
 def main():
@@ -242,13 +250,22 @@ def main():
     rospy.Subscriber('/blobs', Blobs, updateBlobsInfo)
     rospy.Subscriber('/odom', Odometry, updateOdom)
     bridge = CvBridge()
-    rate = rospy.Rate(10)  # 10 Hz
-    global firstBallMarked, firstBallSeen, firstGoalSeen, firstGoalMarked
-    global ball,twist, rate,goal, odom, isOdomReady
+
+    firstBallMarked =False
+    secondBallMarked = False
+    firstBallSeen=False
+    secondBallSeen = False
+    firstGoalSeen=False
+    secondGoalSeen = False
+    firstGoalMarked=False
+    secondGoalMarked = False
+    moved = False    
+    global ball,twist, rate, goal, old_error, odom, isOdomReady
     firstBallOdom=None
     firstGoalOdom=None
     secondBallOdom=None
     secondGoalOdom = None
+    rate = rospy.Rate(10)  # 10 Hz
     # hol up. do we have everything?
     while not rospy.is_shutdown() and(not isColorImageReady or not isBlobsInfoReady or not isOdomReady):
         pass
@@ -279,56 +296,53 @@ def main():
         # no loops within methods, use big while here to iterate. 
         # recall with new blobs
         if not firstBallSeen:
-            twist.angular.z = findFirstBall(ball)
+            firstBallSeen = findBlob(ball)
         elif not firstBallMarked:
             firstBallMarked = honeInOnBlob(ball)
             if firstBallMarked:
-		firstBallOdom = odom
-		old_error = None
-		print("foundfirstball")
+                firstBallOdom = odom
+                old_error = None
+                print("foundfirstball")
         elif not firstGoalSeen:
-            twist.angular.z = findFirstGoal(goal)
+            firstGoalSeen = findBlob(goal)
         elif not firstGoalMarked:
             firstGoalMarked = honeInOnBlob(goal)
             # when we find blob, also reset old_error
             #TODO this record is bad and happens every loop....
             #  maybe in method stop and return odom?
             if firstGoalMarked:
-		firstGoalOdom = odom
-		old_error = None
-		print("foundfirstgoal")
+                firstGoalOdom = odom
+                old_error = None
+                print("foundfirstgoal")
         elif not moved:
-            move()
+            moved = move()
         elif not secondBallSeen:
-            findSecondBall()
-        elif not secondBallFound:
-            twist.angular.z = honeInOnBlob(ball)
-            # RECORD BETTER
-            secondBallOdom = odom
+            secondBallSeen = findBlob()
+        elif not secondBallMarked:
+            secondBallMarked = honeInOnBlob(ball)
+            if secondBallMarked:
+                secondBallOdom = odom
+                old_error = None
+                print("foundsecondball")
         elif not secondGoalSeen:
-            findSecondGoal()
+            secondGoalSeen = findBlob(goal)
         elif not secondGoalMarked:
-            twist.angular.z = honeInOnBlob(goal)
-            # RECORD
-            secondGoalOdom = odom
+            secondGoalMarked = honeInOnBlob(goal)
+            if secondGoalMarked:
+                secondGoalOdom = odom
+                old_error = None
+                print('foundsecondgoal')
 
-    
-
-
-        
-        
-        
-        
-        
+        # INSERT MATH
 
 
         pub.publish(twist)
 
         # Display the image with the blobs
         if ball != None:
-	    cv2.rectangle(cv_image, (ball.left, ball.top), (ball.right, ball.bottom), (0, 255, 0), 2)
+	        cv2.rectangle(cv_image, (ball.left, ball.top), (ball.right, ball.bottom), (0, 255, 0), 2)
         if goal != None:
-	    cv2.rectangle(cv_image, (goal.left, goal.top), (goal.right, goal.bottom), (0, 255, 0), 2)
+	        cv2.rectangle(cv_image, (goal.left, goal.top), (goal.right, goal.bottom), (0, 255, 0), 2)
 
         cv2.imshow("Image window", cv_image)
         cv2.waitKey(3)
