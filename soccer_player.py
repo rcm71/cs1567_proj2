@@ -22,6 +22,10 @@ isBlobsInfoReady = False
 odom = Odometry()
 isOdomReady = False
 
+
+
+
+
 # Callback form camera
 def updateColorImage(data):
     global colorImage, isColorImageReady
@@ -33,8 +37,6 @@ def updateOdom(data):
     global odometry, isOdomReady
     odomerty = data
     isOdomReady = True
-
-
 
 # Callback to get blobs
 def updateBlobsInfo(data):
@@ -158,49 +160,46 @@ def theBlobWithin(inner, outer):
 # TODO test and adjust
 # with given blob, tries to get blob to center of camera by turning towards it
 # 
-def honeInOnBlob():
-    global pub, twist, rate, ball
+def honeInOnBlob(ball):
     old_error = 0
     PROPORTIONAL_VAR = .005
     DIFFERENTIAL_VAR = .04
     ballFound = False
-    while not rospy.is_shutdown() and not ballFound:
-        if (ball != None):
-            error = 320 - ball.x
-            differential = error - old_error
-            old_error = error
-            twist.angular.z = (PROPORTIONAL_VAR * error +
-                                DIFFERENTIAL_VAR * differential)
-        else:
-            twist.angular.z = 0
-        if (abs(error < 2)):
-            twist.angular.z = 0
-            ballFound = True
-        pub.publish(twist)
-        rate.sleep()
-    
-    twist.angular.z = 0
-    pub.publish(twist)
-    rate.sleep(2)
-    return
+    speed = 0
+    if (ball != None):
+        error = 320 - ball.x
+        differential = error - old_error
+        old_error = error
+        speed = (PROPORTIONAL_VAR * error +
+                            DIFFERENTIAL_VAR * differential)
+    else:
+        speed = 0
+    if (abs(error < 2)):
+        speed = 0
+        ballFound = True
+
+    return speed
 
     
 
 
 
 # finds first ball. Returns odom angle
-def findFirstBall(ball, goal):
-    global firstBallSeen, firstGoalSeen, twist, pub, rate
-    while not firstBallSeen and not rospy.is_shutdown():
-        twist.angular.z = .1
-        if (goal != None):
-                firstGoalSeen = True
-        if (ball != None):
-                firstBallSeen = True
-        pub.publish(twist)
-        rate.sleep()
-    honeInOnBlob(ball)
+def findFirstBall(ball):
+    global firstBallSeen
+    speed = .1
+    if (ball != None):
+            firstBallSeen = True
+    return speed
     ####MUUUUUST GET ACCURATE MEASUREMENT 
+
+
+def findFirstGoal(goal):
+    global firstGoalSeen
+    speed = .1
+    if ball != None:
+        firstGoalSeen = True
+    return speed
 
 # odom to degrees. returns degree
 def odomToDegree(odom):
@@ -211,9 +210,8 @@ def odomToDegree(odom):
     odom.pose.pose.orientation.w]
     roll, pitch, yaw = euler_from_quaternion(q)
     # roll, pitch, and yaw are in radian
-    degree = yaw * 180 / math.pi
-    x = odom.pose.pose.position.x
-    y = odom.pose.pose.position.y
+    return yaw * 180 / math.pi
+
 
 
 
@@ -229,84 +227,85 @@ def main():
     global firstBallMarked, firstBallSeen, firstGoalSeen, firstGoalMarked
     global ball, goal, odom, isOdomReady
     firstBallOdom, firstGoalOdom, secondBallOdom, secondGoalOdom = None
-
-
+    ballTriangle, goalTriangle = triangle()
+    old_error = 0
     # hol up. do we have everything?
     while not isColorImageReady and not isBlobsInfoReady and not isOdomReady:
         pass
 
     # beefcakes
     while not rospy.is_shutdown():
-        if isColorImageReady and isBlobsInfoReady:
-            try:
-                cv_image = bridge.imgmsg_to_cv2(colorImage, "bgr8")
-            except CvBridgeError as e:
-                print(e)
-                continue
+        
+        try:
+            cv_image = bridge.imgmsg_to_cv2(colorImage, "bgr8")
+        except CvBridgeError as e:
+            print(e)
+            continue
 
-            # a lot here. big picture is get ball blob and goal blob
-            bigBlob = splitByColor(filterBlobs(blobsInfo.blobs))
-            unmergedOuterGoal = bigBlob.pop()
-            UMinnerGoal = bigBlob.pop()
-            UMball = bigBlob.pop()
-            innerGoalList = mergeAllBlobs(UMinnerGoal)
-            outerGoalList = mergeAllBlobs(unmergedOuterGoal)
-            ballList = mergeAllBlobs(UMball)
-            ball = getLargestBlob(ballList)
-            goal = theBlobWithin(innerGoalList, outerGoalList)
+        # a lot here. big picture is get ball blob and goal blob
+        bigBlob = splitByColor(filterBlobs(blobsInfo.blobs))
+        unmergedOuterGoal = bigBlob.pop()
+        UMinnerGoal = bigBlob.pop()
+        UMball = bigBlob.pop()
+        innerGoalList = mergeAllBlobs(UMinnerGoal)
+        outerGoalList = mergeAllBlobs(unmergedOuterGoal)
+        ballList = mergeAllBlobs(UMball)
+        ball = getLargestBlob(ballList)
+        goal = theBlobWithin(innerGoalList, outerGoalList)
 
-            twist = Twist()
+        twist = Twist()
 
-            # start of main logic
-            # we need to make sure that ^^^^ code runs every cycle. 
-            # no loops within methods, use big while here to iterate. 
-            # recall with new blobs
-            if not firstBallSeen:
-                findFirstBall(ball, goal)
-            elif not firstBallMarked:
-                honeInOnBlob(ball)
-                firstBallOdom = odom
-            elif not firstGoalSeen:
-                findFirstGoal(goal)
-            elif not firstGoalMarked:
-                honeInOnBlob(goal)
-                #TODO this record is bad and happens every loop....
-                #  maybe in method stop and return odom?
-                firstGoalOdom = odom
-            elif not moved:
-                move()
-            elif not secondBallSeen:
-                findSecondBall()
-            elif not secondBallFound:
-                honeInOnBlob(ball)
-                # RECORD BETTER
-                secondBallOdom = odom
-            elif not secondGoalSeen:
-                findSecondGoal()
-            elif not secondGoalMarked:
-                honeInOnBlob(goal)
-                # RECORD
-                secondGoalOdom = odom
+        # start of main logic
+        # we need to make sure that ^^^^ code runs every cycle. 
+        # no loops within methods, use big while here to iterate. 
+        # recall with new blobs
+        if not firstBallSeen:
+            findFirstBall(ball, goal)
+        elif not firstBallMarked:
+            twist.angular.z = honeInOnBlob(ball)
+            firstBallOdom = odom
+        elif not firstGoalSeen:
+            findFirstGoal(goal)
+        elif not firstGoalMarked:
+            twist.angular.z = honeInOnBlob(goal)
+            # when we find blob, also reset old_error
+            #TODO this record is bad and happens every loop....
+            #  maybe in method stop and return odom?
+            firstGoalOdom = odom
+        elif not moved:
+            move()
+        elif not secondBallSeen:
+            findSecondBall()
+        elif not secondBallFound:
+            twist.angular.z = honeInOnBlob(ball)
+            # RECORD BETTER
+            secondBallOdom = odom
+        elif not secondGoalSeen:
+            findSecondGoal()
+        elif not secondGoalMarked:
+            twist.angular.z = honeInOnBlob(goal)
+            # RECORD
+            secondGoalOdom = odom
 
+    
+
+
+        
+        
+        
+        
         
 
 
-            
-            
-           
-            
-            
 
+        pub.publish(twist)
 
+        # Display the image with the blobs
+        cv2.rectangle(cv_image, (ball.left, ball.top), (ball.right, ball.bottom), (0, 255, 0), 2)
+        cv2.rectangle(cv_image, (goal.left, goal.top), (goal.right, goal.bottom), (0, 255, 0), 2)
 
-            pub.publish(twist)
-
-            # Display the image with the blobs
-            cv2.rectangle(cv_image, (ball.left, ball.top), (ball.right, ball.bottom), (0, 255, 0), 2)
-            cv2.rectangle(cv_image, (goal.left, goal.top), (goal.right, goal.bottom), (0, 255, 0), 2)
-
-            cv2.imshow("Image window", cv_image)
-            cv2.waitKey(3)
+        cv2.imshow("Image window", cv_image)
+        cv2.waitKey(3)
 
         rate.sleep()
 
